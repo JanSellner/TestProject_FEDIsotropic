@@ -83,6 +83,14 @@ static cv::Mat FEDInnerStep(const cv::Mat& img, const cv::Mat& cond, const doubl
 
 void main()
 {
+    // Check implementation on a small dataset (c.f. Mathematica script)
+    cv::Mat testdata = (cv::Mat_<double>(3, 3) << 4.1, 1, 9,
+                                                  2, 10.9, 18,
+                                                  20.2, 8, 4.4);
+    cv::Mat testdataCond = conductivityImage(testdata);
+    cv::Mat testdataFEDStep = FEDInnerStep(testdata, testdataCond, 0.1);
+
+    // Diffusion for a real image
     cv::Mat img = cv::imread("GaussianScaleSpace_TrissQuarterResolution.jpg", CV_8UC1);
     cv::resize(img, img, cv::Size(700, (700.0 / img.cols) * img.rows), 0, 0, cv::INTER_CUBIC);
     cv::Mat imgDouble;
