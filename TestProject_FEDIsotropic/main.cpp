@@ -4,11 +4,12 @@
 #include "fed.h"
 #include <iomanip>
 #include <iostream>
+#include <filesystem>
 
 static const float stabilityExplicit = 0.25f;   // Maxmim stability from the explicit scheme which is still stable
 static const double lambda = 10;                // Controls the conductivity function; higher lambda -> more edges get blurred
 static const int M = 10;                        // Number of FED cycles
-static const float T = 100;                     // Total diffusion time
+static const float T = 200;                     // Total diffusion time
 
 static double conductivity(const double magnitude)
 {
@@ -18,8 +19,8 @@ static double conductivity(const double magnitude)
 static cv::Mat conductivityImage(const cv::Mat& img)
 {
     cv::Mat imgGradX, imgGradY;
-    cv::Sobel(img, imgGradX, CV_64FC1, 1, 0);
-    cv::Sobel(img, imgGradY, CV_64FC1, 0, 1);
+    Sobel(img, imgGradX, CV_64FC1, 1, 0);
+    Sobel(img, imgGradY, CV_64FC1, 0, 1);
 
     cv::Mat imgCond(img.rows, img.cols, CV_64FC1);
     for (int row = 0; row < img.rows; row++)
@@ -92,25 +93,51 @@ void main()
 
     // Diffusion for a real image
     cv::Mat img = cv::imread("GaussianScaleSpace_TrissQuarterResolution.jpg", CV_8UC1);
-    cv::resize(img, img, cv::Size(700, (700.0 / img.cols) * img.rows), 0, 0, cv::INTER_CUBIC);
+    resize(img, img, cv::Size(700, (700.0 / img.cols) * img.rows), 0, 0, cv::INTER_CUBIC);
     cv::Mat imgDouble;
     img.convertTo(imgDouble, CV_64FC1);
 
     // Retrieve the different step sizes from the FED library; the same steps are used in all FED cycles
     std::vector<float> taus;
     const int n = fed_tau_by_process_time(T, M, stabilityExplicit, true, taus);
+    std::cout << "Iterations per cycle: n = " << n << std::endl;
 
     // Meta information
     double sumDiffusionTime = 0.0;
     int iteration = 0;
+    const std::experimental::filesystem::path folderIsotropic = "Isotropic";
+    const std::experimental::filesystem::path folderHomogeneous = "Homogeneous";
+    std::experimental::filesystem::path pathImage;
+
+    // Clear existing folders for the images
+    if (exists(folderIsotropic))
+    {
+        remove_all(folderIsotropic);
+    }
+    if (exists(folderHomogeneous))
+    {
+        remove_all(folderHomogeneous);
+    }
+
+    create_directory(folderIsotropic);
+    create_directory(folderHomogeneous);
 
     // T=0 is the original image
     std::stringstream stream;
     stream << "T=" << std::setfill('0') << std::setw(3) << iteration << ".png";
-    cv::imwrite(stream.str(), imgDouble);   // Write image from the last iteration the current folder
+    pathImage = folderIsotropic / stream.str();
+    imwrite(pathImage.string(), imgDouble);   // Write image from the last iteration the current folder
 
-    // Print array with the cumulated diffusion time
-    std::cout << "cumDiffusionTime = [" << sumDiffusionTime;
+    stream.str("");
+    stream << "sigma=" << std::setfill('0') << std::setw(3) << iteration << ".png";
+    pathImage = folderHomogeneous / stream.str();
+    imwrite(pathImage.string(), imgDouble);
+
+    std::vector<double> diffusionTimes;
+    diffusionTimes.push_back(sumDiffusionTime);
+
+    std::vector<double> sigmas;
+    sigmas.push_back(std::sqrt(2 * sumDiffusionTime));
 
     // M FED cycles
     for (size_t i = 0; i < M; ++i)
@@ -128,20 +155,50 @@ void main()
 
             stream.str("");
             stream << "T=" << std::setfill('0') << std::setw(3) << iteration << ".png";
-            cv::imwrite(stream.str(), imgDouble);
+            pathImage = folderIsotropic / stream.str();
+            imwrite(pathImage.string(), imgDouble);
 
-            std::cout << ", " << sumDiffusionTime;
+            // Compare with standard Gaussian using the same diffusion time
+            cv::Mat imgGauss;
+            const double sigma = std::sqrt(2 * sumDiffusionTime);
+            GaussianBlur(img, imgGauss, cv::Size(), sigma);
+
+            stream.str("");
+            stream << "sigma=" << std::setfill('0') << std::setw(3) << iteration << ".png";
+            pathImage = folderHomogeneous / stream.str();
+            imwrite(pathImage.string(), imgGauss);
+
+            diffusionTimes.push_back(sumDiffusionTime);
+            sigmas.push_back(sigma);
         }
     }
 
+    // Print array with the cumulated diffusion time
+    std::cout << "cumDiffusionTime = [";
+    for (size_t i = 0; i < diffusionTimes.size(); ++i)
+    {
+        std::cout << diffusionTimes[i];
+
+        if (i < diffusionTimes.size() - 1)
+        {
+            std::cout << ", ";
+        }
+    }
+    std::cout << "];" << std::endl;
+
+    // And corresponding sigma values
+    std::cout << "sigmas = [";
+    for (size_t i = 0; i < sigmas.size(); ++i)
+    {
+        std::cout << sigmas[i];
+
+        if (i < sigmas.size() - 1)
+        {
+            std::cout << ", ";
+        }
+    }
     std::cout << "];" << std::endl;
 
     cv::Mat imgFED;
     imgDouble.convertTo(imgFED, CV_8UC1);
-
-    // Compare with standard Gaussian using the same diffusion time
-    cv::Mat imgGauss;
-    const double sigma = std::sqrt(2 * T);
-    cv::GaussianBlur(img, imgGauss, cv::Size(), sigma);
-    cv::imwrite("GaussBlurred.png", imgGauss);
 }
